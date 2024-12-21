@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Environment with Physics</title>
+    <title>3D Environment with Improved Collision</title>
     <style>
         body { margin: 0; overflow: hidden; }
         #instructions {
@@ -56,10 +56,31 @@
     cube.position.set(5, 1, 5);
     scene.add(cube);
 
+    // Другие блоки
+    const blocks = [cube];
+
+    // Добавляем несколько блоков
+    for (let i = 0; i < 5; i++) {
+        const block = new THREE.Mesh(
+            new THREE.BoxGeometry(2, 2, 2),
+            new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+        );
+        block.position.set(Math.random() * 20 - 10, 1, Math.random() * 20 - 10);
+        scene.add(block);
+        blocks.push(block);
+    }
+
     // Оболочка для управления камерой
     const cameraWrapper = new THREE.Object3D();
     cameraWrapper.add(camera);
     scene.add(cameraWrapper);
+
+    // Добавление маленького кубика-оружия
+    const weaponGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const weaponMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+    const weapon = new THREE.Mesh(weaponGeometry, weaponMaterial);
+    weapon.position.set(0.5, -0.5, -1); // Смещение относительно камеры
+    camera.add(weapon); // Прикрепляем кубик к камере
 
     // Переменные для управления
     const speed = 5; // Скорость передвижения
@@ -73,6 +94,22 @@
     // Позиция камеры
     camera.position.set(0, playerHeight, 0);
 
+    // Функция проверки столкновений
+    function checkCollisions(position, direction) {
+        const playerBounds = new THREE.Box3().setFromCenterAndSize(
+            position.clone().add(direction),
+            new THREE.Vector3(1, playerHeight, 1)
+        );
+
+        for (const block of blocks) {
+            const blockBounds = new THREE.Box3().setFromObject(block);
+            if (blockBounds.intersectsBox(playerBounds)) {
+                return blockBounds.max.y; // Возвращаем высоту столкновения
+            }
+        }
+        return null; // Нет столкновений
+    }
+
     // Управление движением
     function moveCamera(deltaTime) {
         const direction = new THREE.Vector3();
@@ -80,55 +117,60 @@
         const right = new THREE.Vector3();
 
         // Направления движения
-        cameraWrapper.getWorldDirection(forward); // Получаем направление камеры
-        forward.y = 0; // Игнорируем вертикальный наклон камеры
+        cameraWrapper.getWorldDirection(forward);
+        forward.y = 0;
         forward.normalize();
-
-        right.copy(forward).cross(new THREE.Vector3(0, 1, 0)).normalize(); // Перпендикулярное направление
+        right.copy(forward).cross(new THREE.Vector3(0, 1, 0)).normalize();
 
         // Добавляем или вычитаем векторы для правильного направления
-        if (movement.forward) direction.sub(forward); // Движение вперед (инвертировано)
-        if (movement.backward) direction.add(forward); // Движение назад
-        if (movement.left) direction.sub(right); // Движение влево
-        if (movement.right) direction.add(right); // Движение вправо
+        if (movement.forward) direction.add(forward);
+        if (movement.backward) direction.sub(forward);
+        if (movement.left) direction.add(right);
+        if (movement.right) direction.sub(right);
 
-        // Применяем движение
         direction.normalize().multiplyScalar(speed * deltaTime);
 
-        // Проверка на столкновение с кубом
-        const nextPosition = cameraWrapper.position.clone().add(direction);
-        const cubeBounds = new THREE.Box3().setFromObject(cube);
-        const playerBounds = new THREE.Box3().setFromCenterAndSize(
-            nextPosition,
-            new THREE.Vector3(1, playerHeight, 1) // Размер игрока
-        );
-
-        if (cubeBounds.intersectsBox(playerBounds)) {
-            // Ограничение движения при столкновении
-            const collisionNormal = nextPosition.clone().sub(cube.position).normalize();
-            collisionNormal.y = 0; // Игнорируем вертикальный компонент
-            direction.sub(collisionNormal.multiplyScalar(direction.dot(collisionNormal)));
+        // Проверяем на столкновения в горизонтальной плоскости
+        const collisionHeight = checkCollisions(cameraWrapper.position, direction);
+        if (collisionHeight === null || cameraWrapper.position.y > collisionHeight + 0.1) {
+            cameraWrapper.position.add(direction);
         }
-
-        cameraWrapper.position.add(direction);
 
         // Гравитация
         if (!isGrounded) velocityY -= gravity * deltaTime;
-        cameraWrapper.position.y += velocityY * deltaTime;
 
-        // Ограничение по полу
-        if (cameraWrapper.position.y <= playerHeight) {
-            cameraWrapper.position.y = playerHeight;
-            velocityY = 0;
-            isGrounded = true;
+        const nextYPosition = cameraWrapper.position.y + velocityY * deltaTime;
+        const playerBounds = new THREE.Box3().setFromCenterAndSize(
+            new THREE.Vector3(cameraWrapper.position.x, nextYPosition, cameraWrapper.position.z),
+            new THREE.Vector3(1, playerHeight, 1)
+        );
+
+        let collisionDetected = false;
+
+        for (const block of blocks) {
+            const blockBounds = new THREE.Box3().setFromObject(block);
+            if (blockBounds.intersectsBox(playerBounds)) {
+                collisionDetected = true;
+                if (velocityY < 0) {
+                    isGrounded = true;
+                    velocityY = 0;
+                    cameraWrapper.position.y = blockBounds.max.y + playerHeight / 2; // Останавливаем над блоком
+                }
+                break;
+            }
+        }
+
+        if (!collisionDetected) {
+            isGrounded = nextYPosition <= playerHeight;
+            cameraWrapper.position.y = Math.max(nextYPosition, playerHeight);
         }
     }
 
     // Управление клавишами
     document.addEventListener('keydown', (event) => {
         switch (event.code) {
-            case 'KeyW': movement.forward = true; break;
-            case 'KeyS': movement.backward = true; break;
+            case 'KeyS': movement.forward = true; break;
+            case 'KeyW': movement.backward = true; break;
             case 'KeyA': movement.left = true; break;
             case 'KeyD': movement.right = true; break;
             case 'Space':
@@ -142,8 +184,8 @@
 
     document.addEventListener('keyup', (event) => {
         switch (event.code) {
-            case 'KeyW': movement.forward = false; break;
-            case 'KeyS': movement.backward = false; break;
+            case 'KeyS': movement.forward = false; break;
+            case 'KeyW': movement.backward = false; break;
             case 'KeyA': movement.left = false; break;
             case 'KeyD': movement.right = false; break;
         }
@@ -166,39 +208,105 @@
     });
 
     // Управление камерой мышью
+    // Управление камерой мышью
     let pitch = 0; // Угол наклона вверх/вниз
     let yaw = 0;   // Угол поворота влево/вправо
 
     function onMouseMove(event) {
-        const sensitivity = 0.002; // Чувствительность мыши
+        const sensitivity = 0.002;
         const movementX = event.movementX || 0;
         const movementY = event.movementY || 0;
 
-        // Обновляем углы поворота
-        yaw -= movementX * sensitivity; // Влево/вправо
-        pitch -= movementY * sensitivity; // Вверх/вниз
+        yaw -= movementX * sensitivity;
+        pitch -= movementY * sensitivity;
 
-        // Ограничиваем угол наклона вверх/вниз (от -90° до 90°)
-        const maxPitch = Math.PI / 2; // 90°
+        const maxPitch = Math.PI / 2;
         pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
 
-        // Устанавливаем повороты
-        cameraWrapper.rotation.y = yaw; // Влево/вправо
-        camera.rotation.x = pitch; // Вверх/вниз
+        cameraWrapper.rotation.y = yaw;
+        camera.rotation.x = pitch;
     }
 
     // Анимация
-    let previousTime = performance.now();
-    function animate() {
-        const currentTime = performance.now();
-        const deltaTime = (currentTime - previousTime) / 1000; // Время между кадрами в секундах
-        previousTime = currentTime;
+    const clock = new THREE.Clock();
 
+        // Массив для хранения пуль
+    const bullets = [];
+
+    // Функция создания пули
+    function shootBullet() {
+        const bulletGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        const bulletMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+        const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+
+        // Установить начальную позицию пули на позицию синего куба (оружия)
+        const bulletPosition = new THREE.Vector3();
+        weapon.getWorldPosition(bulletPosition); // Позиция синего куба
+        bullet.position.copy(bulletPosition);
+
+        // Направление движения пули
+        const bulletDirection = new THREE.Vector3();
+        camera.getWorldDirection(bulletDirection); // Направление камеры
+        bullet.userData.velocity = bulletDirection.clone().multiplyScalar(10); // Скорость пули
+
+        scene.add(bullet);
+        bullets.push(bullet);
+    }
+
+    // Слушатель для нажатия левой кнопки мыши
+    document.addEventListener('mousedown', (event) => {
+        if (event.button === 0) { // Левая кнопка мыши
+            shootBullet();
+        }
+    });
+
+        // Функция обновления пуль
+    // Функция обновления пуль с проверкой на столкновения
+    function updateBullets(deltaTime) {
+        for (let i = bullets.length - 1; i >= 0; i--) {
+            const bullet = bullets[i];
+            const velocity = bullet.userData.velocity;
+
+            // Обновить позицию пули
+            bullet.position.add(velocity.clone().multiplyScalar(deltaTime));
+
+            // Создаем границы пули
+            const bulletBounds = new THREE.Box3().setFromObject(bullet);
+
+            let isCollision = false;
+
+            // Проверяем столкновение с каждым блоком
+            for (const block of blocks) {
+                const blockBounds = new THREE.Box3().setFromObject(block);
+
+                if (bulletBounds.intersectsBox(blockBounds)) {
+                    // Удаляем пулю и выходим из цикла
+                    isCollision = true;
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                    break;
+                }
+            }
+
+            // Если пуля вышла за пределы сцены, удаляем её
+            if (!isCollision && bullet.position.length() > 100) {
+                scene.remove(bullet);
+                bullets.splice(i, 1);
+            }
+        }
+    }
+
+
+    function animate() {
+        const deltaTime = clock.getDelta();
         moveCamera(deltaTime);
+        updateBullets(deltaTime); // Обновляем пули с проверкой столкновений
         renderer.render(scene, camera);
         requestAnimationFrame(animate);
     }
+
     animate();
 </script>
+
 </body>
 </html>

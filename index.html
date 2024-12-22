@@ -28,7 +28,12 @@
 </div>
 
 <script type="module">
+    console.log('Скрипт загружен');
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { OBJLoader } from './loaders/OBJLoader.js';
+
+    const loader = new OBJLoader();
+    let weaponModel;
 
     // Основные элементы сцены
     const scene = new THREE.Scene();
@@ -59,7 +64,6 @@
     // Другие блоки
     const blocks = [cube];
 
-    // Добавляем несколько блоков
     for (let i = 0; i < 5; i++) {
         const block = new THREE.Mesh(
             new THREE.BoxGeometry(2, 2, 2),
@@ -70,107 +74,24 @@
         blocks.push(block);
     }
 
-    // Оболочка для управления камерой
+    // Камера
     const cameraWrapper = new THREE.Object3D();
     cameraWrapper.add(camera);
     scene.add(cameraWrapper);
+    camera.position.set(0, 1.5, 0);
 
-    // Добавление маленького кубика-оружия
-    const weaponGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const weaponMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
-    const weapon = new THREE.Mesh(weaponGeometry, weaponMaterial);
-    weapon.position.set(0.5, -0.5, -1); // Смещение относительно камеры
-    camera.add(weapon); // Прикрепляем кубик к камере
-
-    // Переменные для управления
-    const speed = 5; // Скорость передвижения
-    const gravity = 9.8; // Гравитация
-    const jumpStrength = 5; // Сила прыжка
+    // Управление
     const movement = { forward: false, backward: false, left: false, right: false };
-    let velocityY = 0; // Вертикальная скорость
-    const playerHeight = 1.5;
+    const speed = 5;
+    const gravity = 9.8;
+    const jumpStrength = 5;
+    let velocityY = 0;
     let isGrounded = true;
 
-    // Позиция камеры
-    camera.position.set(0, playerHeight, 0);
-
-    // Функция проверки столкновений
-    function checkCollisions(position, direction) {
-        const playerBounds = new THREE.Box3().setFromCenterAndSize(
-            position.clone().add(direction),
-            new THREE.Vector3(1, playerHeight, 1)
-        );
-
-        for (const block of blocks) {
-            const blockBounds = new THREE.Box3().setFromObject(block);
-            if (blockBounds.intersectsBox(playerBounds)) {
-                return blockBounds.max.y; // Возвращаем высоту столкновения
-            }
-        }
-        return null; // Нет столкновений
-    }
-
-    // Управление движением
-    function moveCamera(deltaTime) {
-        const direction = new THREE.Vector3();
-        const forward = new THREE.Vector3();
-        const right = new THREE.Vector3();
-
-        // Направления движения
-        cameraWrapper.getWorldDirection(forward);
-        forward.y = 0;
-        forward.normalize();
-        right.copy(forward).cross(new THREE.Vector3(0, 1, 0)).normalize();
-
-        // Добавляем или вычитаем векторы для правильного направления
-        if (movement.forward) direction.add(forward);
-        if (movement.backward) direction.sub(forward);
-        if (movement.left) direction.add(right);
-        if (movement.right) direction.sub(right);
-
-        direction.normalize().multiplyScalar(speed * deltaTime);
-
-        // Проверяем на столкновения в горизонтальной плоскости
-        const collisionHeight = checkCollisions(cameraWrapper.position, direction);
-        if (collisionHeight === null || cameraWrapper.position.y > collisionHeight + 0.1) {
-            cameraWrapper.position.add(direction);
-        }
-
-        // Гравитация
-        if (!isGrounded) velocityY -= gravity * deltaTime;
-
-        const nextYPosition = cameraWrapper.position.y + velocityY * deltaTime;
-        const playerBounds = new THREE.Box3().setFromCenterAndSize(
-            new THREE.Vector3(cameraWrapper.position.x, nextYPosition, cameraWrapper.position.z),
-            new THREE.Vector3(1, playerHeight, 1)
-        );
-
-        let collisionDetected = false;
-
-        for (const block of blocks) {
-            const blockBounds = new THREE.Box3().setFromObject(block);
-            if (blockBounds.intersectsBox(playerBounds)) {
-                collisionDetected = true;
-                if (velocityY < 0) {
-                    isGrounded = true;
-                    velocityY = 0;
-                    cameraWrapper.position.y = blockBounds.max.y + playerHeight / 2; // Останавливаем над блоком
-                }
-                break;
-            }
-        }
-
-        if (!collisionDetected) {
-            isGrounded = nextYPosition <= playerHeight;
-            cameraWrapper.position.y = Math.max(nextYPosition, playerHeight);
-        }
-    }
-
-    // Управление клавишами
     document.addEventListener('keydown', (event) => {
         switch (event.code) {
-            case 'KeyS': movement.forward = true; break;
-            case 'KeyW': movement.backward = true; break;
+            case 'KeyW': movement.forward = true; break;
+            case 'KeyS': movement.backward = true; break;
             case 'KeyA': movement.left = true; break;
             case 'KeyD': movement.right = true; break;
             case 'Space':
@@ -184,103 +105,120 @@
 
     document.addEventListener('keyup', (event) => {
         switch (event.code) {
-            case 'KeyS': movement.forward = false; break;
-            case 'KeyW': movement.backward = false; break;
+            case 'KeyW': movement.forward = false; break;
+            case 'KeyS': movement.backward = false; break;
             case 'KeyA': movement.left = false; break;
             case 'KeyD': movement.right = false; break;
         }
     });
 
-    // Блокировка мыши
-    const instructions = document.getElementById('instructions');
-    instructions.addEventListener('click', () => {
+    // Проверка столкновений
+    function checkCollisions(position, direction) {
+        const playerBounds = new THREE.Box3().setFromCenterAndSize(
+            position.clone().add(direction),
+            new THREE.Vector3(1, 1.5, 1)
+        );
+
+        for (const block of blocks) {
+            const blockBounds = new THREE.Box3().setFromObject(block);
+            if (blockBounds.intersectsBox(playerBounds)) {
+                return blockBounds.max.y;
+            }
+        }
+        return null;
+    }
+
+    // Управление мышью
+    let pitch = 0, yaw = 0;
+    function onMouseMove(event) {
+        const sensitivity = 0.002;
+        yaw -= event.movementX * sensitivity;
+        pitch -= event.movementY * sensitivity;
+        pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+        cameraWrapper.rotation.y = yaw;
+        camera.rotation.x = pitch;
+    }
+
+    document.getElementById('instructions').addEventListener('click', () => {
         document.body.requestPointerLock();
     });
 
     document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement === document.body) {
-            instructions.style.display = 'none';
-            document.addEventListener('mousemove', onMouseMove, false);
+            document.getElementById('instructions').style.display = 'none';
+            document.addEventListener('mousemove', onMouseMove);
         } else {
-            instructions.style.display = '';
-            document.removeEventListener('mousemove', onMouseMove, false);
+            document.getElementById('instructions').style.display = '';
+            document.removeEventListener('mousemove', onMouseMove);
         }
     });
 
-    // Управление камерой мышью
-    // Управление камерой мышью
-    let pitch = 0; // Угол наклона вверх/вниз
-    let yaw = 0;   // Угол поворота влево/вправо
+    console.log('Начинаем загрузку модели...');
+    loader.load(
+        'AnyConv.com__ak.obj',
+        (obj) => {
+            console.log('Модель загружена:', obj);
+            weaponModel = obj;
+            weaponModel.scale.set(0.5, 0.5, 0.5);
+            weaponModel.position.set(0.5, 1, -1); // Изменяем Y на 1, чтобы модель была видима
+            scene.add(weaponModel);
 
-    function onMouseMove(event) {
-        const sensitivity = 0.002;
-        const movementX = event.movementX || 0;
-        const movementY = event.movementY || 0;
+            // Рендерим сцену после добавления модели
+            renderer.render(scene, camera);
+        },
+        undefined,
+        (error) => {
+            console.error('Ошибка загрузки модели:', error);
+            // Временная замена: добавим куб вместо модели
+            const debugCube = new THREE.BoxGeometry(1, 1, 1);
+            const debugMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            const debugMesh = new THREE.Mesh(debugCube, debugMaterial);
+            debugMesh.position.set(0.5, 1, -1); // Позиция куба
+            scene.add(debugMesh);
+            console.log('Добавлен временный куб для отладки');
+        }
+    );
+    // Добавим куб в сцену для проверки рендеринга
+    const debugCube = new THREE.BoxGeometry(1, 1, 1);
+    const debugMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const debugMesh = new THREE.Mesh(debugCube, debugMaterial);
+    debugMesh.position.set(0, 0.5, -5); // Позиция куба
+    scene.add(debugMesh);
 
-        yaw -= movementX * sensitivity;
-        pitch -= movementY * sensitivity;
-
-        const maxPitch = Math.PI / 2;
-        pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
-
-        cameraWrapper.rotation.y = yaw;
-        camera.rotation.x = pitch;
-    }
-
-    // Анимация
-    const clock = new THREE.Clock();
-
-        // Массив для хранения пуль
+    // Пули
     const bullets = [];
-
-    // Функция создания пули
     function shootBullet() {
+        if (!weaponModel) return;
         const bulletGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
         const bulletMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
         const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
 
-        // Установить начальную позицию пули на позицию синего куба (оружия)
         const bulletPosition = new THREE.Vector3();
-        weapon.getWorldPosition(bulletPosition); // Позиция синего куба
+        weaponModel.getWorldPosition(bulletPosition);
         bullet.position.copy(bulletPosition);
 
-        // Направление движения пули
         const bulletDirection = new THREE.Vector3();
-        camera.getWorldDirection(bulletDirection); // Направление камеры
-        bullet.userData.velocity = bulletDirection.clone().multiplyScalar(10); // Скорость пули
+        camera.getWorldDirection(bulletDirection);
+        bullet.userData.velocity = bulletDirection.clone().multiplyScalar(10);
 
         scene.add(bullet);
         bullets.push(bullet);
     }
 
-    // Слушатель для нажатия левой кнопки мыши
     document.addEventListener('mousedown', (event) => {
-        if (event.button === 0) { // Левая кнопка мыши
-            shootBullet();
-        }
+        if (event.button === 0) shootBullet();
     });
 
-        // Функция обновления пуль
-    // Функция обновления пуль с проверкой на столкновения
     function updateBullets(deltaTime) {
         for (let i = bullets.length - 1; i >= 0; i--) {
             const bullet = bullets[i];
-            const velocity = bullet.userData.velocity;
-
-            // Обновить позицию пули
-            bullet.position.add(velocity.clone().multiplyScalar(deltaTime));
-
-            // Создаем границы пули
+            bullet.position.add(bullet.userData.velocity.clone().multiplyScalar(deltaTime));
             const bulletBounds = new THREE.Box3().setFromObject(bullet);
 
             let isCollision = false;
-
-            // Проверяем столкновение с каждым блоком
             for (const block of blocks) {
                 const blockBounds = new THREE.Box3().setFromObject(block);
-
                 if (bulletBounds.intersectsBox(blockBounds)) {
-                    // Удаляем пулю и выходим из цикла
                     isCollision = true;
                     scene.remove(bullet);
                     bullets.splice(i, 1);
@@ -288,7 +226,6 @@
                 }
             }
 
-            // Если пуля вышла за пределы сцены, удаляем её
             if (!isCollision && bullet.position.length() > 100) {
                 scene.remove(bullet);
                 bullets.splice(i, 1);
@@ -296,17 +233,42 @@
         }
     }
 
+    // Анимация
+    const clock = new THREE.Clock();
+    function moveCamera(deltaTime) {
+        const direction = new THREE.Vector3();
+        const forward = new THREE.Vector3();
+        const right = new THREE.Vector3();
+        cameraWrapper.getWorldDirection(forward);
+        forward.y = 0; forward.normalize();
+        right.copy(forward).cross(new THREE.Vector3(0, 1, 0)).normalize();
+        if (movement.forward) direction.add(forward);
+        if (movement.backward) direction.sub(forward);
+        if (movement.left) direction.sub(right);
+        if (movement.right) direction.add(right);
+        direction.normalize().multiplyScalar(speed * deltaTime);
+
+        const collisionHeight = checkCollisions(cameraWrapper.position, direction);
+        if (!collisionHeight || cameraWrapper.position.y > collisionHeight + 0.1) {
+            cameraWrapper.position.add(direction);
+        }
+
+        if (!isGrounded) velocityY -= gravity * deltaTime;
+        const nextY = cameraWrapper.position.y + velocityY * deltaTime;
+        isGrounded = nextY <= 1.5;
+        cameraWrapper.position.y = Math.max(nextY, 1.5);
+    }
 
     function animate() {
+        console.log('Анимация выполняется...');
         const deltaTime = clock.getDelta();
         moveCamera(deltaTime);
-        updateBullets(deltaTime); // Обновляем пули с проверкой столкновений
+        updateBullets(deltaTime);
         renderer.render(scene, camera);
         requestAnimationFrame(animate);
     }
 
     animate();
 </script>
-
 </body>
 </html>
